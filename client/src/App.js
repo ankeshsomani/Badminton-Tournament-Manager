@@ -1,56 +1,273 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import MatchResults from './MatchResults';
-import PlayerPerformance from './PlayerPerformance';
+import PlayerPerformanceMatrix from './PlayerPerformanceMatrix';
 import AttendanceAndSchedule from './AttendanceAndSchedule';
 import ScheduleExport from './ScheduleExport';
 import FinalizeMatches from './FinalizeMatches';
+import Login from './Login';
+import PublicPerformance from './PublicPerformance';
+import { isAuthenticated, getUser, logout, api } from './utils/api';
+import './App.css';
 
 function App() {
-  const [screen, setScreen] = useState('results');
+  const [authenticated, setAuthenticated] = useState(false);
+  const [user, setUser] = useState(null);
+  const [currentView, setCurrentView] = useState('home'); // 'home', 'leaderboard', 'performance', 'admin', 'results', 'attendance', 'finalize', 'export'
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [loading, setLoading] = useState(true);
+  
+  // Ref for leaderboard reload
+  const leaderboardRef = React.useRef();
   const [players, setPlayers] = useState([]);
   const [playersLoaded, setPlayersLoaded] = useState(false);
 
-  const handleNav = async (target) => {
-    setScreen(target);
-    if (target === 'export' && !playersLoaded) {
-      // Fetch players for export screen
-      const res = await fetch('/api/players');
-      const data = await res.json();
-      setPlayers(data);
-      setPlayersLoaded(true);
+  useEffect(() => {
+    // Check authentication status on app load
+    const checkAuth = () => {
+      if (isAuthenticated()) {
+        setAuthenticated(true);
+        setUser(getUser());
+      }
+      setLoading(false);
+    };
+
+    checkAuth();
+  }, []);
+
+  const handleLogin = (loginData) => {
+    setAuthenticated(true);
+    setUser(loginData.user);
+    setCurrentView('admin');
+  };
+
+  const handleLogout = async () => {
+    try {
+      await api.logout();
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      logout();
+      setAuthenticated(false);
+      setUser(null);
+      setCurrentView('home');
     }
   };
 
+  const handleNav = async (target) => {
+    setCurrentView(target);
+    setShowMobileMenu(false); // Close mobile menu on navigation
+    
+    if (target === 'export' && !playersLoaded) {
+      try {
+        const data = await api.getPlayers();
+        setPlayers(data);
+        setPlayersLoaded(true);
+      } catch (error) {
+        console.error('Error fetching players:', error);
+      }
+    }
+  };
+
+  const toggleMobileMenu = () => {
+    setShowMobileMenu(!showMobileMenu);
+  };
+
+  if (loading) {
+    return (
+      <div className="loading-container">
+        <div className="loading-spinner"></div>
+        <p>Loading...</p>
+      </div>
+    );
+  }
+
+  // Check if user is accessing admin route
+  const isAdminRoute = window.location.pathname === '/admin';
+  
+  if (!authenticated && isAdminRoute) {
+    return <Login onLogin={handleLogin} />;
+  }
+
+  // Public Views (not authenticated)
+  if (!authenticated) {
+    return (
+      <div className="App">
+        <header className="app-header">
+          <div className="header-content">
+            <h1>🏸 Badminton Tournament Manager</h1>
+            <button 
+              className="admin-link-btn"
+              onClick={() => setCurrentView('login')}
+              title="Admin Login"
+            >
+              🔐 Admin
+            </button>
+          </div>
+        </header>
+
+        <main className="app-main">
+          {currentView === 'home' && (
+            <div className="home-page">
+              <div className="hero-section">
+                <div className="hero-content">
+                  <h2>Track Performance & Rankings</h2>
+                  <p>View player statistics, match history, and live rankings</p>
+                </div>
+              </div>
+
+              <div className="action-cards">
+                <div className="action-card">
+                  <div className="card-icon">📊</div>
+                  <h3>Leaderboard</h3>
+                  <p>Track player ratings over time with visual trends</p>
+                  <button 
+                    onClick={() => setCurrentView('leaderboard')}
+                    className="action-btn"
+                  >
+                    View Leaderboard
+                  </button>
+                </div>
+
+                <div className="action-card">
+                  <div className="card-icon">👥</div>
+                  <h3>Player Performance</h3>
+                  <p>Detailed player rankings and match history</p>
+                  <button 
+                    onClick={() => setCurrentView('performance')}
+                    className="action-btn"
+                  >
+                    View Details
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {currentView === 'leaderboard' && (
+            <div className="page-container">
+              <div className="page-header">
+                <button className="back-btn" onClick={() => setCurrentView('home')}>
+                  ← Back
+                </button>
+                <h2>Leaderboard</h2>
+              </div>
+              <PlayerPerformanceMatrix />
+            </div>
+          )}
+
+          {currentView === 'performance' && (
+            <div className="page-container">
+              <div className="page-header">
+                <button className="back-btn" onClick={() => setCurrentView('home')}>
+                  ← Back
+                </button>
+                <h2>Player Performance</h2>
+              </div>
+              <PublicPerformance />
+            </div>
+          )}
+
+          {currentView === 'login' && (
+            <div className="page-container">
+              <div className="page-header">
+                <button className="back-btn" onClick={() => setCurrentView('home')}>
+                  ← Back
+                </button>
+                <h2>Admin Login</h2>
+              </div>
+              <Login onLogin={handleLogin} />
+            </div>
+          )}
+        </main>
+      </div>
+    );
+  }
+
+  // Admin Views (authenticated)
   return (
     <div className="App">
-      <h1>Badminton Tournament Manager</h1>
-      <div style={{textAlign:'center', marginBottom:24}}>
+      <header className="app-header">
+        <div className="header-content">
+          <h1>🏸 Badminton Tournament Manager</h1>
+          <div className="user-info">
+            <span>Welcome, {user?.username}</span>
+            <button onClick={handleLogout} className="logout-button">
+              Logout
+            </button>
+          </div>
+        </div>
+        <button className="mobile-menu-btn" onClick={toggleMobileMenu}>
+          ☰
+        </button>
+      </header>
+
+      <nav className={`app-nav ${showMobileMenu ? 'mobile-open' : ''}`}>
         <button
-          style={{marginRight:12, padding:'8px 18px', borderRadius:6, border:'1px solid #b3e6ff', background:screen==='results'?'#b3e6ff':'#f0f0f0', fontWeight:'bold', cursor:'pointer'}}
-          onClick={()=>handleNav('results')}
-        >Match Results</button>
+          className={`nav-button ${currentView === 'admin' ? 'active' : ''}`}
+          onClick={() => handleNav('admin')}
+        >
+          🏠 Home
+        </button>
         <button
-          style={{marginRight:12, padding:'8px 18px', borderRadius:6, border:'1px solid #b3e6ff', background:screen==='performance'?'#b3e6ff':'#f0f0f0', fontWeight:'bold', cursor:'pointer'}}
-          onClick={()=>handleNav('performance')}
-        >Player Performance</button>
+          className={`nav-button ${currentView === 'results' ? 'active' : ''}`}
+          onClick={() => handleNav('results')}
+        >
+          Results
+        </button>
         <button
-          style={{marginRight:12, padding:'8px 18px', borderRadius:6, border:'1px solid #b3e6ff', background:screen==='attendance'?'#b3e6ff':'#f0f0f0', fontWeight:'bold', cursor:'pointer'}}
-          onClick={()=>handleNav('attendance')}
-        >Attendance & Schedule</button>
+          className={`nav-button ${currentView === 'attendance' ? 'active' : ''}`}
+          onClick={() => handleNav('attendance')}
+        >
+          📅 Schedule
+        </button>
         <button
-          style={{marginRight:12, padding:'8px 18px', borderRadius:6, border:'1px solid #b3e6ff', background:screen==='finalize'?'#b3e6ff':'#f0f0f0', fontWeight:'bold', cursor:'pointer'}}
-          onClick={()=>handleNav('finalize')}
-        >Finalize Matches</button>
+          className={`nav-button ${currentView === 'finalize' ? 'active' : ''}`}
+          onClick={() => handleNav('finalize')}
+        >
+          ✅ Finalize
+        </button>
         <button
-          style={{padding:'8px 18px', borderRadius:6, border:'1px solid #b3e6ff', background:screen==='export'?'#b3e6ff':'#f0f0f0', fontWeight:'bold', cursor:'pointer'}}
-          onClick={()=>handleNav('export')}
-        >Export Schedule</button>
-      </div>
-      {screen === 'results' ? <MatchResults /> :
-        screen === 'performance' ? <PlayerPerformance /> :
-        screen === 'attendance' ? <AttendanceAndSchedule /> :
-        screen === 'finalize' ? <FinalizeMatches /> :
-        <ScheduleExport players={players} />}
+          className={`nav-button ${currentView === 'export' ? 'active' : ''}`}
+          onClick={() => handleNav('export')}
+        >
+          📤 Export
+        </button>
+      </nav>
+
+      <main className="app-main">
+        {currentView === 'admin' && (
+          <div className="admin-home">
+            <h2>Admin Dashboard</h2>
+            <div className="admin-cards">
+              <div className="admin-card" onClick={() => handleNav('results')}>
+                <div className="card-icon">📋</div>
+                <h3>Match Results</h3>
+                <p>Record and manage match results</p>
+              </div>
+              <div className="admin-card" onClick={() => handleNav('attendance')}>
+                <div className="card-icon">📅</div>
+                <h3>Schedule & Attendance</h3>
+                <p>Manage match scheduling and attendance</p>
+              </div>
+              <div className="admin-card" onClick={() => handleNav('finalize')}>
+                <div className="card-icon">✅</div>
+                <h3>Finalize Matches</h3>
+                <p>Finalize match results and update ratings</p>
+              </div>
+              <div className="admin-card" onClick={() => handleNav('export')}>
+                <div className="card-icon">📤</div>
+                <h3>Export Schedule</h3>
+                <p>Export match schedules and data</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {currentView === 'results' && <MatchResults />}
+        {currentView === 'attendance' && <AttendanceAndSchedule />}
+        {currentView === 'finalize' && <FinalizeMatches onFinalize={() => leaderboardRef.current && leaderboardRef.current.reload()} />}
+        {currentView === 'export' && <ScheduleExport players={players} />}
+      </main>
     </div>
   );
 }

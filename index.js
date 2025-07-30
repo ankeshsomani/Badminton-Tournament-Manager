@@ -2,28 +2,82 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
+const http = require('http');
+const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const db = require('./config/db');
 const Player = require('./models/Player');
+const User = require('./models/User');
 const swaggerUi = require('swagger-ui-express');
 const swaggerJsdoc = require('swagger-jsdoc');
 const xlsx = require('xlsx');
+const { authenticateToken } = require('./middleware/auth');
 
+const authRoute = require('./routes/auth');
+const publicRoute = require('./routes/public');
 const playersRoute = require('./routes/players');
 const attendanceRoute = require('./routes/attendance');
 const scheduleRoute = require('./routes/schedule');
 const resultsRoute = require('./routes/results');
 
 const app = express();
+
+// Trust proxy for rate limiting (fixes X-Forwarded-For error)
+app.set('trust proxy', 1);
+
+// Security middleware
+app.use(helmet());
+app.use(cors({
+  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 2500, // limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// More strict rate limiting for auth routes
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 2000, // limit each IP to 5 requests per windowMs
+  message: 'Too many authentication attempts, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use('/api/', limiter);
+app.use('/api/auth/', authLimiter);
+
 app.use(bodyParser.json());
 
 // Serve static files
 app.use(express.static(path.join(__dirname, 'client')));
 
-// Mount routes
-app.use('/api/players', playersRoute);
-app.use('/api/attendance', attendanceRoute);
-app.use('/api/schedule', scheduleRoute);
-app.use('/api/results', resultsRoute);
+// Admin route handler
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, 'client', 'index.html'));
+});
+
+// Mount public routes (no authentication required)
+app.use('/api/public', publicRoute);
+
+// Mount authentication routes (unprotected)
+app.use('/api/auth', authRoute);
+
+// Mount protected routes
+app.use('/api/players', authenticateToken, playersRoute);
+app.use('/api/attendance', authenticateToken, attendanceRoute);
+app.use('/api/schedule', authenticateToken, scheduleRoute);
+app.use('/api/results', authenticateToken, resultsRoute);
 
 // Swagger setup
 const swaggerDefinition = {
@@ -33,7 +87,23 @@ const swaggerDefinition = {
     version: '1.0.0',
     description: 'API documentation for Badminton Scheduler',
   },
-  servers: [{ url: '  http://localhost:3000' }],
+  servers: [
+    { url: 'https://your-production-domain.com:8085', description: 'Production HTTPS' },
+    { url: 'http://your-production-domain.com:8084', description: 'Production HTTP' },
+    { url: 'http://localhost:3001', description: 'Development' }
+  ],
+  components: {
+    securitySchemes: {
+      bearerAuth: {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+      },
+    },
+  },
+  security: [{
+    bearerAuth: [],
+  }],
 };
 
 const options = {
@@ -42,6 +112,32 @@ const options = {
 };
 const swaggerSpec = swaggerJsdoc(options);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
+// Create default admin user
+async function createDefaultAdmin() {
+  try {
+    // Get admin credentials from environment variables with fallbacks
+    const adminUsername = process.env.ADMIN_USERNAME || 'admin';
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@badminton.com';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+    
+    const adminExists = await User.findOne({ where: { username: adminUsername } });
+    if (!adminExists) {
+      await User.create({
+        username: adminUsername,
+        email: adminEmail,
+        password: adminPassword,
+        role: 'admin'
+      });
+      console.log(`Default admin user created: ${adminUsername}/${adminPassword}`);
+      console.log(`Admin email: ${adminEmail}`);
+    } else {
+      console.log(`Admin user '${adminUsername}' already exists`);
+    }
+  } catch (error) {
+    console.error('Error creating default admin:', error);
+  }
+}
 
 // Import sample data from Excel
 async function importSamplePlayers() {
@@ -100,7 +196,44 @@ async function importSamplePlayers() {
 
 // Sync DB and start server
 db.sync({ alter: true }).then(async () => {
+  await createDefaultAdmin();
   await importSamplePlayers();
-  const PORT = process.env.PORT || 3000;
-  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  
+  const HTTP_PORT = process.env.HTTP_PORT || 8084;
+  const HTTPS_PORT = process.env.HTTPS_PORT || 8085;
+  const NODE_ENV = process.env.NODE_ENV || 'development';
+  
+  // Start HTTP server
+  const httpServer = http.createServer(app);
+  httpServer.listen(HTTP_PORT, () => {
+    console.log(`🚀 HTTP Server running on port ${HTTP_PORT}`);
+    console.log(`📱 Environment: ${NODE_ENV}`);
+    console.log(`🌐 Client URL: ${process.env.CLIENT_URL || 'http://localhost:3000'}`);
+  });
+  
+  // Start HTTPS server if SSL certificates are available
+  const sslKeyPath = process.env.SSL_KEY_PATH || '/etc/letsencrypt/live/your-domain.com/privkey.pem';
+  const sslCertPath = process.env.SSL_CERT_PATH || '/etc/letsencrypt/live/your-domain.com/fullchain.pem';
+  
+  if (fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath)) {
+    try {
+      const httpsOptions = {
+        key: fs.readFileSync(sslKeyPath),
+        cert: fs.readFileSync(sslCertPath)
+      };
+      
+      const httpsServer = https.createServer(httpsOptions, app);
+      httpsServer.listen(HTTPS_PORT, () => {
+        console.log(`🔒 HTTPS Server running on port ${HTTPS_PORT}`);
+        console.log(`🌍 Production URL: https://your-production-domain.com`);
+      });
+    } catch (error) {
+      console.error('❌ Error starting HTTPS server:', error.message);
+      console.log('⚠️  HTTPS server not started. Running HTTP only.');
+    }
+  } else {
+    console.log('⚠️  SSL certificates not found. Running HTTP only.');
+    console.log(`📁 Expected SSL key path: ${sslKeyPath}`);
+    console.log(`📁 Expected SSL cert path: ${sslCertPath}`);
+  }
 });

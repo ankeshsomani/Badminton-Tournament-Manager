@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { api } from './utils/api';
 
 function PlayerPerformance() {
   const [players, setPlayers] = useState([]);
@@ -14,8 +15,7 @@ function PlayerPerformance() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/players/performance');
-      const data = await res.json();
+      const data = await api.getPlayerPerformance();
       setPlayers(data);
     } catch (err) {
       setError('Failed to fetch player performance');

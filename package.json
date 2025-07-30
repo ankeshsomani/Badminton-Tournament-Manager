@@ -3,15 +3,26 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "build": "cd client && npm install && npm run build",
+    "build:client": "cd client && npm run build",
+    "install:client": "cd client && npm install",
+    "start:prod": "NODE_ENV=production node index.js"
   },
   "dependencies": {
+    "bcryptjs": "^2.4.3",
     "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "express": "^4.18.2",
+    "express-rate-limit": "^7.5.1",
+    "helmet": "^7.2.0",
+    "jsonwebtoken": "^9.0.2",
     "jspdf": "^3.0.1",
     "jspdf-autotable": "^5.0.2",
     "mysql2": "^3.3.1",
+    "react-router-dom": "^7.7.1",
     "sequelize": "^6.32.1",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",

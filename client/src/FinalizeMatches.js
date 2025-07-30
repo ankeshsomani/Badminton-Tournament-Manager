@@ -1,36 +1,59 @@
 import React, { useState, useEffect } from 'react';
+import { api } from './utils/api';
 
-function FinalizeMatches() {
+// Accept onFinalize prop to trigger external refresh
+function FinalizeMatches({ onFinalize }) {
   const [matchDays, setMatchDays] = useState([]);
   const [selectedMatchDay, setSelectedMatchDay] = useState('');
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [finalizedDays, setFinalizedDays] = useState([]);
 
   useEffect(() => {
-    fetch('/api/schedule/matchdays')
-      .then(res => res.json())
+    api.getMatchDays()
       .then(setMatchDays)
       .catch(() => setStatus('Failed to load match days'));
   }, []);
 
   const handleFinalize = async () => {
-    if (!selectedMatchDay) return;
+    if (!selectedMatchDay || finalizedDays.includes(selectedMatchDay)) return;
     setLoading(true);
     setStatus(null);
     try {
-      const res = await fetch('/api/results/finalizeMatches', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ matchDayId: selectedMatchDay })
-      });
-      const data = await res.json();
-      if (res.ok) setStatus('Success: ' + (data.message || 'Matches finalized.'));
-      else setStatus('Error: ' + (data.error || 'Failed to finalize matches.'));
+      // First finalize matches as before
+      const data = await api.finalizeMatches({ matchDayId: selectedMatchDay });
+      // Find the date string for the selected match day ID
+      const matchDayObj = matchDays.find(md => md.id === selectedMatchDay);
+      const matchDayDate = matchDayObj ? matchDayObj.date : selectedMatchDay;
+      // Then fetch attendance for the day using the date string
+      const attendanceData = await api.getAttendanceByDate(matchDayDate);
+      // attendanceData: [{ playerId, present, date }]
+      const absentPlayers = attendanceData.filter(a => !a.present).map(a => a.playerId);
+      let penalized = [];
+      // Penalize each absent player
+      for (const playerId of absentPlayers) {
+        try {
+          // Fetch player data
+          const player = await api.getPlayers().then(players => players.find(p => p.id === playerId));
+          if (player) {
+            const newRating = (player.currentRating || player.initialRating || 0) - 10;
+            await api.updatePlayer(playerId, { ...player, currentRating: newRating });
+            penalized.push(player.name || playerId);
+          }
+        } catch (err) { /* continue */ }
+      }
+      setStatus('Success: ' + (data.message || 'Matches finalized.') + (penalized.length ? ` | -10 points: ${penalized.join(', ')}` : ''));
+      setFinalizedDays(prev => [...prev, selectedMatchDay]);
+      // If a parent provided onFinalize, call it to trigger leaderboard refetch
+      if (typeof onFinalize === 'function') {
+        onFinalize();
+      }
     } catch (e) {
-      setStatus('Error: Failed to finalize matches.');
+      setStatus('Error: ' + (e.message || 'Failed to finalize matches.'));
     }
     setLoading(false);
   };
+
 
   return (
     <div className="finalize-container">
@@ -44,9 +67,14 @@ function FinalizeMatches() {
           ))}
         </select>
       </div>
-      <button className="update-btn" onClick={handleFinalize} disabled={!selectedMatchDay || loading}>
-        {loading ? 'Finalizing...' : 'Finalize Matches'}
+      <button className="update-btn" onClick={handleFinalize} disabled={!selectedMatchDay || loading || finalizedDays.includes(selectedMatchDay)}>
+        {finalizedDays.includes(selectedMatchDay)
+          ? 'Already Finalized'
+          : loading ? 'Finalizing...' : 'Finalize Matches'}
       </button>
+      {finalizedDays.includes(selectedMatchDay) && (
+        <div style={{marginTop:8, color:'#f39c12'}}>This match day has already been finalized.</div>
+      )}
       {status && <div style={{marginTop:16, color: status.startsWith('Success') ? 'green' : 'red'}}>{status}</div>}
       <style>{`
         .finalize-container {

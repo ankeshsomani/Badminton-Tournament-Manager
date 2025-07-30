@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { api } from './utils/api';
 
 function ScheduleExport({ players }) {
   const [matchDays, setMatchDays] = useState([]);
@@ -40,8 +41,7 @@ function ScheduleExport({ players }) {
 
   useEffect(() => {
     // Fetch all match days for dropdown
-    fetch('/api/schedule/matchdays')
-      .then(res => res.json())
+    api.getMatchDays()
       .then(setMatchDays)
       .catch(() => setError('Failed to load match days'));
   }, []);
@@ -53,9 +53,7 @@ function ScheduleExport({ players }) {
     setSchedule(null);
     if (!matchDayId) return;
     try {
-      const res = await fetch(`/api/schedule/${matchDayId}`);
-      if (!res.ok) throw new Error('Failed to fetch schedule');
-      const data = await res.json();
+      const data = await api.getScheduleByMatchDay(matchDayId);
       setSchedule(data);
     } catch (e) {
       setError('Failed to fetch schedule');
