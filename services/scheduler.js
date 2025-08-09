@@ -1,6 +1,7 @@
 const { Match, RatingAwards } = require('../models/Match');
 const Player = require('../models/Player');
 const MatchDay = require('../models/MatchDay');
+const PlayerRatingSnapshot = require('../models/PlayerRatingSnapshot');
 const Attendance = require('../models/Attendance');
 
 async function generateSchedule(date = new Date()) {
@@ -11,18 +12,23 @@ async function generateSchedule(date = new Date()) {
     // Defensive: check Attendance table exists and query works
     let attendance;
     try {
-      attendance = await Attendance.findAll({ where: { MatchDayId: matchDay.id, present: true }, include: Player });
+      attendance = await Attendance.findAll({
+        where: { MatchDayId: matchDay.id, present: true },
+        include: [{ model: Player }],
+        order: [[Player, 'currentRating', 'DESC'], [Player, 'initialRating', 'DESC']]
+      });
     } catch (err) {
       console.error('Attendance query error:', err);
       throw err;
     }
     const present = attendance.filter(a => a.Player).map(a => a.Player);
+    console.log('present people:-', present);
     const courts = [];
     for (let i = 0; i < present.length; i += 8) {
       const group = present.slice(i, i + 8);
       if (group.length < 8) break;
       const codes = [
-        ['M1', [[0,3],[1,2]]], ['M2', [[4,7],[5,6]]], ['M4', [[0,7],[1,6]]], ['M3', [[2,5],[3,4]]],
+        ['M1', [[0,3],[1,2]]], ['M2', [[4,7],[5,6]]], ['M3', [[2,5],[3,4]]],['M4', [[0,7],[1,6]]],
         ['M5', [[0],[1]]], ['M6', [[2],[3]]], ['M7', [[4],[5]]], ['M8', [[6],[7]]],
         ['M9', [[0,2],[1,3]]], ['M10',[[4,6],[5,7]]], ['M11',[[0,1],[2,3]]], ['M12',[[4,5],[6,7]]]
       ];
@@ -85,11 +91,18 @@ async function recordResult(matchId, winnerIds, score) {
   if (["M1","M2","M3","M4"].includes(code)) { wDelta=5; lDelta=-5; }
   else if (["M5","M6","M7","M8"].includes(code)) { wDelta=10; lDelta=-10; }
   else if (["M9","M10","M11","M12"].includes(code)) {
-    const winningTeamRatingsSum = winners.reduce((s,p)=>s+(p.currentRating||0),0);
-    const losingTeamRatingsSum = losers.reduce((s,p)=>s+(p.currentRating||0),0);
-    console.log(`winningTeamRatingsSum: ${winningTeamRatingsSum}, losingTeamRatingsSum: ${losingTeamRatingsSum}`);
-    
-    const isWiningTeamWeaker = winningTeamRatingsSum<losingTeamRatingsSum;
+    const winningTeamCurrentRatingsSum = winners.reduce((s,p)=>s+(p.currentRating||0),0);
+    const losingTeamCurrentRatingsSum = losers.reduce((s,p)=>s+(p.currentRating||0),0);
+    console.log(`winningTeamCurrentRatingsSum: ${winningTeamCurrentRatingsSum}, losingTeamRatingsSum: ${losingTeamCurrentRatingsSum}`);
+
+    const winningTeamInitialRatingsSum = winners.reduce((s,p)=>s+(p.initialRating||0),0);
+    const losingTeamInitialRatingsSum = losers.reduce((s,p)=>s+(p.initialRating||0),0);
+    console.log(`winningTeamInitialRatingsSum: ${winningTeamInitialRatingsSum}, losingTeamInitialRatingsSum: ${losingTeamInitialRatingsSum}`);
+
+    // Determine weaker team: prefer current rating sums; if equal, fall back to initial rating sums
+    const isWiningTeamWeaker = (winningTeamCurrentRatingsSum === losingTeamCurrentRatingsSum)
+      ? (winningTeamInitialRatingsSum < losingTeamInitialRatingsSum)
+      : (winningTeamCurrentRatingsSum < losingTeamCurrentRatingsSum);
     console.log(`isWiningTeamWeaker: ${isWiningTeamWeaker}`);
     if (["M9","M10"].includes(code))
       [wDelta,lDelta] = isWiningTeamWeaker ? [10,-10] : [5,-5];
@@ -141,19 +154,33 @@ async function finalizeMatches(matchDayId) {
     // Get the MatchDay date for correct award attribution
     const matchDayObj = await MatchDay.findByPk(matchDayId);
     const matchDayDate = matchDayObj ? matchDayObj.date : null;
-    for (const absent of absentees) {
-      const player = await Player.findByPk(absent.PlayerId);
-      if (player) {
-        await player.update({ currentRating: player.currentRating - 10, lastRatingUpdatedOn: now });
-        // Create a RatingAwards entry for the absence penalty
-        await RatingAwards.create({
-          Rating: -10,
-          PlayerId: player.id,
-          MatchId: null, // Not linked to a match
-          date: matchDayDate // custom field for frontend grouping (if schema allows)
-        });
-        penalizedPlayers.push(player.id);
-        console.log(`Penalty: -10 for absent player ${player.id}`);
+
+    if (absentees.length) {
+      // Create a synthetic match representing absences so MatchId is non-null
+      const absenceMatch = await Match.create({
+        matchCode: 'ABS',
+        matchType: 'absence',
+        date: matchDayDate,
+        court: null,
+        team1: [],
+        team2: [],
+        MatchDayId: matchDayId,
+      });
+
+      for (const absent of absentees) {
+        const player = await Player.findByPk(absent.PlayerId);
+        if (player) {
+          await player.update({ currentRating: player.currentRating - 10, 
+            lastRatingUpdatedOn: now });
+          await RatingAwards.create({
+            Rating: -10,
+            PlayerId: player.id,
+            MatchId: absenceMatch.id,
+            date: matchDayDate,
+          });
+          penalizedPlayers.push(player.id);
+          console.log(`Penalty: -10 for absent player ${player.id}`);
+        }
       }
     }
 
@@ -163,6 +190,22 @@ async function finalizeMatches(matchDayId) {
       if (player) {
         await player.update({ currentRating: player.currentRating + totalDelta, lastRatingUpdatedOn: now });
         console.log(`Updated currentRating for player ${playerId}: ${player.currentRating} (${totalDelta > 0 ? '+' : ''}${totalDelta}), lastRatingUpdatedOn: ${now}`);
+      }
+    }
+
+    // Persist rating snapshots for all affected players (including absentees)
+    const affectedPlayerIds = new Set([
+      ...Object.keys(playerRatings).map(id=>parseInt(id,10)),
+      ...penalizedPlayers
+    ]);
+    for (const pid of affectedPlayerIds) {
+      const pl = await Player.findByPk(pid);
+      if (pl) {
+        await PlayerRatingSnapshot.upsert({
+          playerId: pid,
+          matchDayId: matchDayId,
+          rating: pl.currentRating,
+        });
       }
     }
 

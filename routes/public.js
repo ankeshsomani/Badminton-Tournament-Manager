@@ -44,6 +44,59 @@ router.post('/matches', async (req, res) => {
 });
 
 // GET /api/public/players/performance - Public access to player performance
+/**
+ * @swagger
+ * /api/public/players/snapshots:
+ *   get:
+ *     summary: Get player rating snapshots (public access)
+ *     responses:
+ *       200:
+ *         description: List of players with rating snapshots
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ */
+// GET /api/public/players/snapshots - performance snapshots per player per finalized match day
+router.get('/players/snapshots', async (req, res) => {
+  try {
+    const Player = require('../models/Player');
+    const PlayerRatingSnapshot = require('../models/PlayerRatingSnapshot');
+    const MatchDay = require('../models/MatchDay');
+
+    const players = await Player.findAll({ order: [['currentRating', 'DESC']] });
+
+    const snapshots = await PlayerRatingSnapshot.findAll({
+      include: [{ model: MatchDay, attributes: ['date'] }],
+      order: [['matchDayId', 'DESC']]
+    });
+
+    const snapshotsByPlayer = {};
+    for (const snap of snapshots) {
+      if (!snapshotsByPlayer[snap.playerId]) snapshotsByPlayer[snap.playerId] = [];
+      snapshotsByPlayer[snap.playerId].push({
+        date: snap.MatchDay.date,
+        rating: snap.rating
+      });
+    }
+
+    const result = players.map(p => ({
+      id: p.id,
+      name: p.name,
+      initialRating: p.initialRating,
+      currentRating: p.currentRating,
+      snapshots: snapshotsByPlayer[p.id] || []
+    }));
+
+    res.json(result);
+  } catch (err) {
+    console.error('Error fetching player snapshots:', err);
+    res.status(500).json({ error: 'Failed to fetch player snapshots' });
+  }
+});
+
 router.get('/players/performance', async (req, res) => {
   try {
     const players = await Player.findAll({
@@ -62,16 +115,16 @@ router.get('/players/performance', async (req, res) => {
           order: [['date', 'DESC']]
         });
         
-        // Map match info and points for each match
-        const matchDetails = awards.map(a => {
-          const match = matches.find(m => m.id === a.MatchId);
-          return match ? {
+        // Map match info and points for each match (preserve sorted order)
+        const matchDetails = matches.map(match => {
+          const award = awards.find(a => a.MatchId === match.id);
+          return award ? {
             matchId: match.id,
             date: match.date,
             matchCode: match.matchCode,
             court: match.court,
             score: match.score,
-            points: a.Rating
+            points: award.Rating
           } : null;
         }).filter(Boolean);
         
@@ -349,6 +402,131 @@ router.get('/players/top-by-rating-change', async (req, res) => {
   } catch (error) {
     console.error('Error fetching top players by rating change:', error);
     res.status(500).json({ error: 'Failed to fetch top players' });
+  }
+});
+
+/**
+ * GET /api/public/highlights
+ * Returns highlights for a given match day: top gainers, top losers, closest matches, one-sided matches
+ * Query params:
+ * - matchDay: YYYY-MM-DD (required)
+ * - limit: number (optional, default 10)
+ */
+router.get('/highlights', async (req, res) => {
+  const { matchDay } = req.query;
+  const limit = Math.max(1, Math.min(parseInt(req.query.limit || '10', 10), 20));
+
+  if (!matchDay) {
+    return res.status(400).json({ error: 'matchDay query parameter is required' });
+  }
+
+  try {
+    // Build start/end of day range to handle timestamps stored with time component
+    const start = new Date(matchDay);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+
+    // --- Section 1 & 2: Player rating changes for the day ---
+    const awards = await RatingAwards.findAll({
+      include: [
+        { model: Match, where: { date: { [Op.gte]: start, [Op.lt]: end } }, attributes: [] },
+        { model: Player, attributes: ['id', 'name'] },
+      ],
+    });
+
+    const playerChanges = {};
+    for (const award of awards) {
+      const pid = award.Player.id;
+      if (!playerChanges[pid]) {
+        playerChanges[pid] = {
+          player_id: pid,
+          name: award.Player.name,
+          rating_change: 0,
+        };
+      }
+      const delta = (award.dataValues?.Rating ?? award.Rating ?? 0);
+      playerChanges[pid].rating_change += delta;
+    }
+    const changesArray = Object.values(playerChanges);
+    const topGainers = changesArray
+      .filter(p => p.rating_change > 0)
+      .sort((a, b) => b.rating_change - a.rating_change)
+      .slice(0, limit);
+    const topLosers = changesArray
+      .filter(p => p.rating_change < 0)
+      .sort((a, b) => a.rating_change - b.rating_change) // most negative first
+      .slice(0, limit);
+
+    // --- Section 3 & 4: Closest and one-sided matches by score margin ---
+    const matches = await Match.findAll({
+      where: { date: { [Op.gte]: start, [Op.lt]: end } },
+      order: [['court', 'ASC'], ['matchCode', 'ASC']],
+    });
+
+    const parseScoreDiffs = (scoreStr) => {
+      if (!scoreStr || typeof scoreStr !== 'string') return [];
+      // Split by comma or space, keep parts like 21-19
+      const parts = scoreStr.split(/[;,\n]/).join(' ').split(/\s+/).filter(Boolean);
+      const diffs = [];
+      for (const part of parts) {
+        const m = part.match(/(\d+)\s*[-:]\s*(\d+)/);
+        if (m) {
+          const a = parseInt(m[1], 10);
+          const b = parseInt(m[2], 10);
+          if (!Number.isNaN(a) && !Number.isNaN(b)) diffs.push(Math.abs(a - b));
+        }
+      }
+      return diffs;
+    };
+
+    // Helper to resolve player names for teams
+    const resolveTeamNames = async (ids) => {
+      if (!ids || !ids.length) return [];
+      const players = await Player.findAll({ where: { id: ids } });
+      // Keep the input order
+      const idToName = Object.fromEntries(players.map(p => [p.id, p.name]));
+      return ids.map(id => idToName[id]).filter(Boolean);
+    };
+
+    const matchSummaries = [];
+    for (const match of matches) {
+      if (!match.score) continue; // ignore matches without score
+      const diffs = parseScoreDiffs(match.score);
+      if (!diffs.length) continue; // unparseable
+      const marginSum = diffs.reduce((s, d) => s + d, 0);
+      const marginAvg = marginSum / diffs.length;
+      const team1Names = await resolveTeamNames(match.team1 || []);
+      const team2Names = await resolveTeamNames(match.team2 || []);
+      matchSummaries.push({
+        id: match.id,
+        matchCode: match.matchCode,
+        court: match.court,
+        score: match.score,
+        marginSum,
+        marginAvg,
+        team1Names,
+        team2Names,
+      });
+    }
+
+    const closestMatches = [...matchSummaries]
+      .sort((a, b) => a.marginSum - b.marginSum)
+      .slice(0, limit);
+    const oneSidedMatches = [...matchSummaries]
+      .sort((a, b) => b.marginSum - a.marginSum)
+      .slice(0, limit);
+
+    res.json({
+      matchDay,
+      topGainers,
+      topLosers,
+      closestMatches,
+      oneSidedMatches,
+    });
+  } catch (error) {
+    console.error('Error building highlights:', error);
+    res.status(500).json({ error: 'Failed to fetch highlights' });
   }
 });
 

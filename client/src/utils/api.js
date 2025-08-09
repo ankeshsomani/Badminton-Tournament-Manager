@@ -193,6 +193,7 @@ export const api = {
     method: 'POST',
     body: JSON.stringify(scheduleData),
   }),
+  checkScheduleExists: (date) => apiRequest(`/schedule/check/${date}`),
   updateSchedule: (id, scheduleData) => apiRequest(`/schedule/${id}`, {
     method: 'PUT',
     body: JSON.stringify(scheduleData),
@@ -201,6 +202,7 @@ export const api = {
   // Results
   getResults: () => apiRequest('/results'),
   getMatches: () => apiRequest('/results/matches'),
+  getFinalizePreview: (matchDayId) => apiRequest(`/results/preview/${matchDayId}`),
   finalizeMatches: (matchDayData) => apiRequest('/results/finalizeMatches', {
     method: 'POST',
     body: JSON.stringify(matchDayData),
@@ -213,6 +215,13 @@ export const api = {
     method: 'PUT',
     body: JSON.stringify(resultData),
   }),
+  deleteMatch: (id) => apiRequest(`/results/${id}`, {
+    method: 'DELETE',
+  }),
+  createMatch: (matchData) => apiRequest('/results/match', {
+    method: 'POST',
+    body: JSON.stringify(matchData),
+  }),
 
   // Auth
   login: (credentials) => publicApiRequest('/auth/login', {
@@ -224,15 +233,42 @@ export const api = {
     method: 'PUT',
     body: JSON.stringify(passwordData),
   }),
-  logout: () => apiRequest('/auth/logout', {
-    method: 'POST',
-  }),
+  logout: async () => {
+    return await apiRequest('/auth/logout', { method: 'POST' });
+  },
+
+  // Player management
+  createPlayer: async (playerData) => {
+    return await apiRequest('/players', {
+      method: 'POST',
+      body: JSON.stringify(playerData)
+    });
+  },
+
+  updatePlayer: async (playerId, playerData) => {
+    return await apiRequest(`/players/${playerId}`, {
+      method: 'PUT',
+      body: JSON.stringify(playerData)
+    });
+  },
+
+  deletePlayer: async (playerId) => {
+    return await apiRequest(`/players/${playerId}`, {
+      method: 'DELETE'
+    });
+  },
+
+  checkPlayerMatches: async (playerId) => {
+    return await apiRequest(`/players/${playerId}/matches`);
+  },
 
   // Public endpoints
   getPublicPerformance: () => publicApiRequest('/public/players/performance'),
+  getPublicSnapshots: () => publicApiRequest('/public/players/snapshots'),
   getPublicMatchDetails: (matchId) => publicApiRequest(`/public/matches/${matchId}`),
   getPublicMatchDays: () => publicApiRequest('/public/schedule/matchdays'),
   getTopPlayersByRatingChange: (matchDay) => publicApiRequest(`/public/players/top-by-rating-change?matchDay=${matchDay}`),
+  getPublicHighlights: (matchDay, limit = 10) => publicApiRequest(`/public/highlights?matchDay=${encodeURIComponent(matchDay)}&limit=${limit}`),
 };
 
 export {

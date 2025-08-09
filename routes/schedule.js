@@ -4,6 +4,7 @@ const { generateSchedule } = require('../services/scheduler');
 const MatchDay = require('../models/MatchDay');
 const { Match } = require('../models/Match');
 const Player = require('../models/Player');
+const { Sequelize } = require('sequelize');
 
 /**
  * @swagger
@@ -33,9 +34,66 @@ const Player = require('../models/Player');
 
 // POST /api/schedule
 router.post('/', async (req, res) => {
-  const { date } = req.body;
-  const schedule = await generateSchedule(date);
-  res.json(schedule);
+  try {
+    const { date } = req.body;
+    
+    if (!date) {
+      return res.status(400).json({ error: 'Date is required' });
+    }
+    var matchesExistsForDate = false;
+    var matchDayExistsForDate = false;
+    
+    // Check if schedule already exists for this date
+    const existingMatches = await Match.findOne({
+      where: Sequelize.where(Sequelize.fn('DATE', Sequelize.col('date')), date)
+    });
+    if (existingMatches) {matchesExistsForDate = true
+    }
+    
+    // Check if MatchDay exists for this date
+    const existingMatchDay = await MatchDay.findOne({
+      where: Sequelize.where(Sequelize.fn('DATE', Sequelize.col('date')), date)
+    });
+    if (existingMatchDay) {
+      matchDayExistsForDate =true;
+    }
+    if(matchesExistsForDate && matchDayExistsForDate){
+      return res.status(409).json({ 
+        error: 'Schedule already exists for this date',
+        alreadyGenerated: true 
+      });
+    }
+    
+    const schedule = await generateSchedule(date);
+    res.json({ schedule, alreadyGenerated: false });
+  } catch (error) {
+    console.error('Error generating schedule:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/schedule/check/:date - Check if schedule exists for date
+router.get('/check/:date', async (req, res) => {
+  try {
+    const { date } = req.params;
+    
+    // Check if matches exist for this date
+    const existingMatches = await Match.findOne({
+      where: Sequelize.where(Sequelize.fn('DATE', Sequelize.col('date')), date)
+    });
+    // Check if MatchDay exists for this date
+    console.log('existingMatches', existingMatches);
+    const existingMatchDay = await MatchDay.findOne({
+      where: Sequelize.where(Sequelize.fn('DATE', Sequelize.col('date')), date)
+    });
+    console.log('existingMatchDay', existingMatchDay);
+    const alreadyGenerated = !!(existingMatches && existingMatchDay);
+    
+    res.json({ alreadyGenerated, date });
+  } catch (error) {
+    console.error('Error checking schedule:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // GET /api/matchdays - return all match days (id, date)
@@ -74,11 +132,17 @@ router.get('/:matchDayId', async (req, res) => {
           id: match.id,
           matchCode: match.matchCode,
           matchType: match.matchType,
+          date: match.date,
+          court: match.court,
           team1: match.team1,
           team2: match.team2,
+          team1Players: team1Players,
+          team2Players: team2Players,
           team1Names: team1Players.map(p => p.name),
           team2Names: team2Players.map(p => p.name),
-          score: match.score || ''
+          score: match.score || '',
+          winnerIds: match.winnerIds,
+          loserIds: match.loserIds
         };
       }));
       return { court, matches: formattedMatches };

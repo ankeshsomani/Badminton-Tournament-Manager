@@ -11,25 +11,90 @@ function AttendanceAndSchedule() {
   const [error, setError] = useState(null);
   const [showExport, setShowExport] = useState(false);
   const [generatedDates, setGeneratedDates] = useState([]);
+  const [checkingSchedule, setCheckingSchedule] = useState(false);
 
   useEffect(() => {
     fetchPlayers();
   }, []);
+
+  // Check if schedule exists when date changes
+  useEffect(() => {
+    if (date) {
+      checkScheduleExists();
+    }
+  }, [date]);
+
+  // Load attendance whenever players list or date changes
+  useEffect(() => {
+    if (players.length) {
+      fetchAttendance(date);
+    }
+  }, [players, date]);
+
+  const checkScheduleExists = async () => {
+    setCheckingSchedule(true);
+    try {
+      const result = await api.checkScheduleExists(date);
+      if (result.alreadyGenerated) {
+        setGeneratedDates(prev => prev.includes(date) ? prev : [...prev, date]);
+      } else {
+        setGeneratedDates(prev => prev.filter(d => d !== date));
+      }
+    } catch (err) {
+      console.error('Error checking schedule:', err);
+    }
+    setCheckingSchedule(false);
+  };
 
   const fetchPlayers = async () => {
     setLoading(true);
     setError(null);
     try {
       const data = await api.getPlayers();
-      setPlayers(data);
+      // Sort by currentRating desc, then initialRating desc
+      const sorted = [...data].sort((a, b) => {
+        const crA = a.currentRating ?? 0;
+        const crB = b.currentRating ?? 0;
+        if (crB !== crA) return crB - crA;
+        const irA = a.initialRating ?? 0;
+        const irB = b.initialRating ?? 0;
+        return irB - irA;
+      });
+      setPlayers(sorted);
       // Default: all present
       const att = {};
-      data.forEach(p => { att[p.id] = true; });
+      sorted.forEach(p => { att[p.id] = true; });
       setAttendance(att);
     } catch (err) {
       setError('Failed to fetch players');
     }
     setLoading(false);
+  };
+
+  // Fetch attendance records for the selected date from API
+  const fetchAttendance = async (selectedDate) => {
+    try {
+      const records = await api.getAttendanceByDate(selectedDate);
+      if (Array.isArray(records) && records.length > 0) {
+        const att = {};
+        records.forEach(rec => {
+          const pid = rec.PlayerId || rec.playerId || (rec.Player && rec.Player.id);
+          if (pid != null) {
+            att[pid] = !!rec.present;
+          }
+        });
+        // Ensure every player has an entry
+        players.forEach(p => { if (att[p.id] === undefined) att[p.id] = true; });
+        setAttendance(att);
+      } else {
+        // No attendance saved yet - default all present
+        const att = {};
+        players.forEach(p => { att[p.id] = true; });
+        setAttendance(att);
+      }
+    } catch (err) {
+      console.error('Failed to fetch attendance:', err);
+    }
   };
 
   const handleToggle = (id) => {
@@ -57,10 +122,21 @@ function AttendanceAndSchedule() {
     setSchedule(null);
     try {
       const data = await api.createSchedule({ date });
-      setSchedule(data);
+      // Handle new response format from backend
+      if (data.alreadyGenerated) {
+        alert('Schedule already exists for this date');
+        setGeneratedDates(prev => prev.includes(date) ? prev : [...prev, date]);
+        return;
+      }
+      setSchedule(data.schedule || data);
       setGeneratedDates(prev => [...prev, date]);
     } catch (err) {
-      alert('Failed to generate schedule');
+      if (err.message && err.message.includes('already exists')) {
+        alert('Schedule already exists for this date');
+        setGeneratedDates(prev => prev.includes(date) ? prev : [...prev, date]);
+      } else {
+        alert('Failed to generate schedule');
+      }
     }
   };
 
@@ -142,11 +218,11 @@ function AttendanceAndSchedule() {
         </tbody>
       </table>
       <div style={{marginTop:16, textAlign:'right'}}>
-        <button className="update-btn" onClick={handleSaveAttendance} disabled={saving}>
-          {saving ? 'Saving...' : 'Save Attendance'}
+        <button className="update-btn" onClick={handleSaveAttendance} disabled={saving || generatedDates.includes(date) || checkingSchedule}>
+          {generatedDates.includes(date) ? 'Attendance Locked' : (saving ? 'Saving...' : 'Save Attendance')}
         </button>
-        <button className="update-btn" style={{marginLeft:12}} onClick={handleGenerateSchedule} disabled={generatedDates.includes(date)}>
-          {generatedDates.includes(date) ? 'Already Generated' : 'Generate Schedule'}
+        <button className="update-btn" style={{marginLeft:12}} onClick={handleGenerateSchedule} disabled={generatedDates.includes(date) || checkingSchedule}>
+          {checkingSchedule ? 'Checking...' : (generatedDates.includes(date) ? 'Already Generated' : 'Generate Schedule')}
         </button>
         {generatedDates.includes(date) && (
           <span style={{marginLeft:8, color:'#f39c12'}}>Schedule for this day has already been generated.</span>
