@@ -3,6 +3,110 @@ const Player = require('../models/Player');
 const MatchDay = require('../models/MatchDay');
 const PlayerRatingSnapshot = require('../models/PlayerRatingSnapshot');
 const Attendance = require('../models/Attendance');
+const XLSX = require('xlsx');
+
+const totalCourtsAvailable = parseInt(process.env.TOTAL_COURTS_AVAILABLE, 10) || 6;
+const defaultPeoplePerCourt = parseInt(process.env.DEFAULT_PEOPLE_PER_COURT, 10) || 8;
+
+/**
+ * Read matches from an Excel file and return sequential match codes with type.
+ * 
+ * @param {string} filePath - Path to XLSX file (e.g., 'match-schedule.xlsx').
+ * @param {number} numPlayers - Number of players (4,5,6,7,8,9,10,11).
+ * @param {object} opts - Optional options:
+ *   - sheetName: if provided, read only this sheet; else read the first sheet.
+ *   - strict: if true, drop rows where any player number exceeds numPlayers.
+ *             default true.
+ *   - headerRowIndex: which row contains column headers (0-based, default 0).
+ * @returns {Array<{code:string, team:string, type:string}>}
+ */
+function getMatches(filePath, numPlayers, opts = {}) {
+  console.log("*****getMatches called for players: ", numPlayers);
+  const strict = opts.strict !== false; // default true
+  const wb = XLSX.readFile(filePath);
+  const sheetName = opts.sheetName || wb.SheetNames[0];
+  const ws = wb.Sheets[sheetName];
+
+  // Produce rows as arrays preserving blank cells
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+  if (!rows.length) return [];
+
+  // Find the target column by matching header text like "8 Players"
+  const header = rows[0];
+  const wantedHeaderText = `${numPlayers} Players`;
+  const colIndex = header.findIndex(h => String(h || '').trim().toLowerCase() === wantedHeaderText.toLowerCase());
+
+  if (colIndex === -1) {
+    throw new Error(`Column "${wantedHeaderText}" not found in sheet "${sheetName}".`);
+  }
+
+  // First column holds the match "type"
+  const typeColIndex = 0;
+  const out = [];
+  let n = 1;
+
+  for (let r = 1; r < rows.length; r++) {
+    const type = (rows[r][typeColIndex] || '').toString().trim();
+    const team = (rows[r][colIndex] || '').toString().trim();
+
+    if (!team) continue; // skip blank
+
+    // If strict, skip any team string referencing a player number greater than numPlayers
+    if (strict) {
+      const nums = (team.match(/\d+/g) || []).map(Number);
+      if (nums.some(v => v > numPlayers)) continue;
+    }
+
+    out.push({
+      code: `M${n++}`,
+      team,
+      type
+    });
+  }
+
+  return out;
+}
+
+// Helper function to parse team strings like "1-4 v/s 2-3" or "1 v/s 2"
+function parseTeamString(teamStr, numPlayers) {
+  try {
+    // Split by "v/s" or "vs"
+    const parts = teamStr.split(/\s+v\/s\s+|\s+vs\s+/i);
+    if (parts.length !== 2) return { team1Indices: null, team2Indices: null, matchType: null };
+
+    const [team1Str, team2Str] = parts;
+
+    // Parse team indices (convert from 1-based to 0-based)
+    const parseTeam = (str) => {
+      if (str.includes('-')) {
+        // Doubles: "1-4" means players 1 and 4
+        return str.split('-').map(n => parseInt(n.trim()) - 1);
+      } else {
+        // Singles: "1" means player 1
+        return [parseInt(str.trim()) - 1];
+      }
+    };
+
+    const team1Indices = parseTeam(team1Str);
+    const team2Indices = parseTeam(team2Str);
+
+    // Validate indices are within range
+    const allIndices = [...team1Indices, ...team2Indices];
+    if (allIndices.some(idx => idx < 0 || idx >= numPlayers)) {
+      console.log(`Invalid player indices for ${numPlayers} players: ${teamStr}`);
+      return { team1Indices: null, team2Indices: null, matchType: null };
+    }
+
+    // Determine match type
+    const matchType = (team1Indices.length === 1 && team2Indices.length === 1) ? 'singles' : 'doubles';
+
+    return { team1Indices, team2Indices, matchType };
+  } catch (error) {
+    console.error(`Error parsing team string "${teamStr}":`, error);
+    return { team1Indices: null, team2Indices: null, matchType: null };
+  }
+}
 
 async function generateSchedule(date = new Date()) {
   try {

@@ -329,13 +329,12 @@ router.get('/matches/:matchId', async (req, res) => {
  */
 router.get('/schedule/matchdays', async (req, res) => {
   try {
-    const matchDays = await Match.findAll({
-      attributes: [
-        [Sequelize.fn('DISTINCT', Sequelize.col('date')), 'match_day'],
-      ],
+    const MatchDay = require('../models/MatchDay');
+    const days = await MatchDay.findAll({
+      attributes: ['id', ['date', 'match_day'], 'finalized'],
       order: [['date', 'DESC']],
     });
-    res.json(matchDays);
+    res.json(days);
   } catch (error) {
     console.error('Error fetching public match days:', error);
     res.status(500).json({ error: 'Failed to fetch match days' });
@@ -421,16 +420,29 @@ router.get('/highlights', async (req, res) => {
   }
 
   try {
-    // Build start/end of day range to handle timestamps stored with time component
-    const start = new Date(matchDay);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
+    const MatchDay = require('../models/MatchDay');
+    const cleanDate = matchDay.split('T')[0];
+
+    // Find MatchDay record
+    const foundMatchDay = await MatchDay.findOne({
+      where: { date: cleanDate }
+    });
+
+    let matchWhere = {};
+    if (foundMatchDay) {
+      matchWhere = { MatchDayId: foundMatchDay.id };
+    } else {
+      const start = new Date(cleanDate);
+      start.setHours(-12, 0, 0, 0);
+      const end = new Date(cleanDate);
+      end.setHours(36, 0, 0, 0);
+      matchWhere = { date: { [Op.gte]: start, [Op.lt]: end } };
+    }
 
     // --- Section 1 & 2: Player rating changes for the day ---
     const awards = await RatingAwards.findAll({
       include: [
-        { model: Match, where: { date: { [Op.gte]: start, [Op.lt]: end } }, attributes: [] },
+        { model: Match, where: matchWhere, attributes: [] },
         { model: Player, attributes: ['id', 'name'] },
       ],
     });
@@ -460,7 +472,7 @@ router.get('/highlights', async (req, res) => {
 
     // --- Section 3 & 4: Closest and one-sided matches by score margin ---
     const matches = await Match.findAll({
-      where: { date: { [Op.gte]: start, [Op.lt]: end } },
+      where: matchWhere,
       order: [['court', 'ASC'], ['matchCode', 'ASC']],
     });
 

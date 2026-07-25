@@ -59,12 +59,19 @@ app.use('/api/auth/', authLimiter);
 
 app.use(bodyParser.json());
 
-// Serve static files
-app.use(express.static(path.join(__dirname, 'client')));
+// Serve static files (prefer client/build if it exists)
+const clientBuildPath = fs.existsSync(path.join(__dirname, 'client', 'build'))
+  ? path.join(__dirname, 'client', 'build')
+  : path.join(__dirname, 'client');
+
+app.use(express.static(clientBuildPath));
 
 // Admin route handler
 app.get('/admin', (req, res) => {
-  res.sendFile(path.join(__dirname, 'client', 'index.html'));
+  const adminFile = fs.existsSync(path.join(clientBuildPath, 'index.html'))
+    ? path.join(clientBuildPath, 'index.html')
+    : path.join(__dirname, 'client', 'index.html');
+  res.sendFile(adminFile);
 });
 
 // Mount public routes (no authentication required)
@@ -245,6 +252,13 @@ db.sync().then(async () => {
   console.log('🗄️  Database synchronized successfully');
   
   try {
+    const resetSequences = require('./scripts/reset-sequences');
+    await resetSequences();
+  } catch (err) {
+    console.error('⚠️ Sequence reset warning:', err.message);
+  }
+  
+  try {
     console.log('👤 Creating default admin user...');
     await createDefaultAdmin();
     console.log('✅ Default admin user created/verified');
@@ -259,24 +273,24 @@ db.sync().then(async () => {
     console.error('❌ Error importing players:', error.message);
   }
   
-  const HTTP_PORT = process.env.HTTP_PORT || 8084;
-  const HTTPS_PORT = process.env.HTTPS_PORT || 8085;
+  const PORT = process.env.PORT || process.env.HTTP_PORT || 8080;
   const NODE_ENV = process.env.NODE_ENV || 'development';
   
-  // Start HTTP server
+  // Start HTTP server (Cloud Run terminates SSL at the edge automatically)
   const httpServer = http.createServer(app);
-  httpServer.listen(HTTP_PORT, () => {
-    console.log(`🚀 HTTP Server running on port ${HTTP_PORT}`);
+  httpServer.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
     console.log(`📱 Environment: ${NODE_ENV}`);
     console.log(`🌐 Client URL: ${process.env.CLIENT_URL || 'http://localhost:3000'}`);
   });
   
-  // Start HTTPS server if SSL certificates are available
-  const sslKeyPath = process.env.SSL_KEY_PATH || '/etc/letsencrypt/live/your-domain.com/privkey.pem';
-  const sslCertPath = process.env.SSL_CERT_PATH || '/etc/letsencrypt/live/your-domain.com/fullchain.pem';
+  // Optional local SSL setup for non-cloud environments
+  const sslKeyPath = process.env.SSL_KEY_PATH;
+  const sslCertPath = process.env.SSL_CERT_PATH;
   
-  if (fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath)) {
+  if (sslKeyPath && sslCertPath && fs.existsSync(sslKeyPath) && fs.existsSync(sslCertPath)) {
     try {
+      const HTTPS_PORT = process.env.HTTPS_PORT || 8085;
       const httpsOptions = {
         key: fs.readFileSync(sslKeyPath),
         cert: fs.readFileSync(sslCertPath)
@@ -285,16 +299,10 @@ db.sync().then(async () => {
       const httpsServer = https.createServer(httpsOptions, app);
       httpsServer.listen(HTTPS_PORT, () => {
         console.log(`🔒 HTTPS Server running on port ${HTTPS_PORT}`);
-        console.log(`🌍 Production URL: https://your-production-domain.com`);
       });
     } catch (error) {
       console.error('❌ Error starting HTTPS server:', error.message);
-      console.log('⚠️  HTTPS server not started. Running HTTP only.');
     }
-  } else {
-    console.log('⚠️  SSL certificates not found. Running HTTP only.');
-    console.log(`📁 Expected SSL key path: ${sslKeyPath}`);
-    console.log(`📁 Expected SSL cert path: ${sslCertPath}`);
   }
 }).catch(error => {
   console.error('❌ Database synchronization failed:', error.message);

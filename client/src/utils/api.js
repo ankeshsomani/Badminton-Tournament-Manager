@@ -2,25 +2,11 @@
 
 // Configure API base URL based on environment variables
 const getApiBaseUrl = () => {
-  // Get base URL and endpoint from environment variables
   const baseUrl = process.env.REACT_APP_API_BASE_URL;
-  const apiEndpoint = process.env.REACT_APP_API_ENDPOINT || '/api';
-  
-  if (!baseUrl) {
-    console.warn('REACT_APP_API_BASE_URL not set, using fallback');
-    // Fallback URLs from environment variables
-    if (process.env.NODE_ENV === 'production') {
-      const fallbackUrl = process.env.REACT_APP_FALLBACK_PROD_URL || 'https://your-production-domain.com:8085';
-      const fallbackEndpoint = process.env.REACT_APP_FALLBACK_PROD_ENDPOINT || '/api';
-      return `${fallbackUrl}${fallbackEndpoint}`;
-    }
-    const fallbackUrl = process.env.REACT_APP_FALLBACK_DEV_URL || 'http://localhost:8085';
-    const fallbackEndpoint = process.env.REACT_APP_FALLBACK_DEV_ENDPOINT || '/api';
-    return `${fallbackUrl}${fallbackEndpoint}`;
+  if (!baseUrl || baseUrl.includes(':8085') || baseUrl.includes('your-production-domain')) {
+    return '/api';
   }
-  
-  // Combine base URL with configurable endpoint
-  return `${baseUrl}${apiEndpoint}`;
+  return baseUrl.endsWith('/api') ? baseUrl : `${baseUrl}/api`;
 };
 
 const API_BASE_URL = getApiBaseUrl();

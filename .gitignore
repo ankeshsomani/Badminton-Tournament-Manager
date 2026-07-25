@@ -16,7 +16,6 @@ DEPLOYMENT.md
 .env.production
 
 # Build outputs
-/client/build/
 /client/dist/
 /build/
 /dist/
@@ -130,6 +129,7 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
+*.sql
 
 # Backup files
 *.bak
@@ -149,8 +149,6 @@ public/uploads/
 .pm2/
 
 # Docker
-.dockerignore
-Dockerfile
 docker-compose.yml
 docker-compose.override.yml
 
@@ -163,7 +161,4 @@ test-results.xml
 
 # Misc
 *.tgz
-*.tar.gz 
-
-MBPL Season 1.0.xlsx
-MBPLSeason1.0.xlsx
+*.tar.gz
