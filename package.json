@@ -8,7 +8,8 @@
     "dev": "nodemon index.js",
     "import-players": "node scripts/import-players.js",
     "import-players-force": "node scripts/import-players.js --force",
-    "migrate-data": "node scripts/migrate-data.js"
+    "migrate-data": "node scripts/migrate-data.js",
+    "deploy": "bash scripts/deploy.sh"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
