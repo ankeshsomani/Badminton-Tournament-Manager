@@ -1,6 +1,6 @@
 const bcrypt = require('bcrypt');
 
-const password = 'Maheshwari@123'; // Replace with your desired password
+const password = process.argv[2] || process.env.PASSWORD || 'YOUR_PASSWORD_HERE'; // Pass password via CLI arg or env var
 const saltRounds = 10; // Number of salt rounds for hashing
 
 bcrypt.hash(password, saltRounds, (err, hash) => {
