@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -e
 
-echo "🚀 Starting manual deployment to GCP Cloud Run (asia-south1 - Mumbai)..."
+SERVICE_NAME="mbpl-app"
+
+echo "🚀 Building frontend React assets locally..."
+npm --prefix client run build
 
 # Load local environment variables from .env if present
 if [ -f .env ]; then
@@ -13,12 +16,8 @@ if [ -z "$DATABASE_URL" ] || [ -z "$JWT_SECRET" ]; then
   exit 1
 fi
 
-# Ensure gcloud is configured
-gcloud config set account ankeshsomani@gmail.com >/dev/null 2>&1 || true
-gcloud config set project badminton-cloudrun >/dev/null 2>&1 || true
-
 echo "☁️ Deploying container to Cloud Run in asia-south1..."
-gcloud run deploy badminton-tournament-app \
+gcloud run deploy "${SERVICE_NAME}" \
   --source . \
   --region asia-south1 \
   --allow-unauthenticated \
