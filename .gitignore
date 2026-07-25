@@ -16,6 +16,7 @@ DEPLOYMENT.md
 .env.production
 
 # Build outputs
+/client/build/
 /client/dist/
 /build/
 /dist/
