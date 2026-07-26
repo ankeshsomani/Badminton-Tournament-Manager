@@ -12,6 +12,11 @@ const MatchDay = sequelize.define('MatchDay', {
     allowNull: false,
     defaultValue: false,
   },
+  SeasonId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 1,
+  },
 });
 
 module.exports = MatchDay;

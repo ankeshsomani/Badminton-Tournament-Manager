@@ -143,17 +143,6 @@ export const api = {
   // Players
   getPlayers: () => apiRequest('/players'),
   getPlayerPerformance: () => apiRequest('/players/performance'),
-  createPlayer: (playerData) => apiRequest('/players', {
-    method: 'POST',
-    body: JSON.stringify(playerData),
-  }),
-  updatePlayer: (id, playerData) => apiRequest(`/players/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(playerData),
-  }),
-  deletePlayer: (id) => apiRequest(`/players/${id}`, {
-    method: 'DELETE',
-  }),
 
   // Attendance
   getAttendance: () => apiRequest('/attendance'),
@@ -204,10 +193,6 @@ export const api = {
   deleteMatch: (id) => apiRequest(`/results/${id}`, {
     method: 'DELETE',
   }),
-  createMatch: (matchData) => apiRequest('/results/match', {
-    method: 'POST',
-    body: JSON.stringify(matchData),
-  }),
 
   // Auth
   login: (credentials) => publicApiRequest('/auth/login', {
@@ -249,10 +234,11 @@ export const api = {
   },
 
   // Public endpoints
-  getPublicPerformance: () => publicApiRequest('/public/players/performance'),
-  getPublicSnapshots: () => publicApiRequest('/public/players/snapshots'),
+  getPublicSeasons: () => publicApiRequest('/public/seasons'),
+  getPublicPerformance: (seasonId = 2) => publicApiRequest(`/public/players/performance?seasonId=${seasonId}`),
+  getPublicSnapshots: (seasonId = 2) => publicApiRequest(`/public/players/snapshots?seasonId=${seasonId}`),
   getPublicMatchDetails: (matchId) => publicApiRequest(`/public/matches/${matchId}`),
-  getPublicMatchDays: () => publicApiRequest('/public/schedule/matchdays'),
+  getPublicMatchDays: (seasonId = 2) => publicApiRequest(`/public/schedule/matchdays?seasonId=${seasonId}`),
   getTopPlayersByRatingChange: (matchDay) => publicApiRequest(`/public/players/top-by-rating-change?matchDay=${matchDay}`),
   getPublicHighlights: (matchDay, limit = 10) => publicApiRequest(`/public/highlights?matchDay=${encodeURIComponent(matchDay)}&limit=${limit}`),
 };

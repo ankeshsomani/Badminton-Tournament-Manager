@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import './PublicPerformance.css';
 import { api } from './utils/api';
+import SeasonSelector from './SeasonSelector';
 
 function PublicPerformance({ initialPlayerId }) {
   const [players, setPlayers] = useState([]);
+  const [selectedSeasonId, setSelectedSeasonId] = useState(2);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [expanded, setExpanded] = useState({});
@@ -24,11 +26,12 @@ function PublicPerformance({ initialPlayerId }) {
   const matchesPerPage = 5;
 
   useEffect(() => {
-    fetchPerformance();
+    fetchPerformance(selectedSeasonId);
     checkScreenSize();
     window.addEventListener('resize', checkScreenSize);
     return () => window.removeEventListener('resize', checkScreenSize);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSeasonId]);
 
   // When players are loaded and initialPlayerId is provided, auto-expand that player's details
   useEffect(() => {
@@ -57,11 +60,13 @@ function PublicPerformance({ initialPlayerId }) {
     }
   };
 
-  const fetchPerformance = async () => {
+  const fetchPerformance = async (seasonId) => {
     setLoading(true);
     setError(null);
+    setExpanded({});
+    setCurrentPage(1);
     try {
-      const data = await api.getPublicPerformance();
+      const data = await api.getPublicPerformance(seasonId);
       setPlayers(data);
     } catch (err) {
       setError('Failed to fetch player performance');
@@ -198,6 +203,10 @@ function PublicPerformance({ initialPlayerId }) {
 
   return (
     <div className="public-performance-container">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' }}>
+        <SeasonSelector selectedSeasonId={selectedSeasonId} onSeasonChange={setSelectedSeasonId} />
+        <span style={{ fontSize: '13px', color: '#64748b', fontWeight: '500' }}>{players.length} players found</span>
+      </div>
 
       <div className="controls-section">
         <div className="search-box">

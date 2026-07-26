@@ -59,6 +59,18 @@ router.post('/matches', async (req, res) => {
  *               items:
  *                 type: object
  */
+// GET /api/public/seasons - List all seasons
+router.get('/seasons', async (req, res) => {
+  try {
+    const Season = require('../models/Season');
+    const seasons = await Season.findAll({ order: [['id', 'DESC']] });
+    res.json(seasons);
+  } catch (err) {
+    console.error('Error fetching public seasons:', err);
+    res.status(500).json({ error: 'Failed to fetch seasons' });
+  }
+});
+
 // GET /api/public/players/snapshots - performance snapshots per player per finalized match day
 router.get('/players/snapshots', async (req, res) => {
   try {
@@ -66,7 +78,11 @@ router.get('/players/snapshots', async (req, res) => {
     const PlayerRatingSnapshot = require('../models/PlayerRatingSnapshot');
     const MatchDay = require('../models/MatchDay');
 
-    const players = await Player.findAll({ order: [['currentRating', 'DESC']] });
+    const targetSeasonId = parseInt(req.query.seasonId || req.query.SeasonId || '2', 10);
+    const players = await Player.findAll({
+      where: { SeasonId: targetSeasonId },
+      order: [['currentRating', 'DESC'], ['rank', 'ASC']]
+    });
 
     const snapshots = await PlayerRatingSnapshot.findAll({
       include: [{ model: MatchDay, attributes: ['date'] }],
@@ -99,38 +115,42 @@ router.get('/players/snapshots', async (req, res) => {
 
 router.get('/players/performance', async (req, res) => {
   try {
+    const targetSeasonId = parseInt(req.query.seasonId || req.query.SeasonId || '2', 10);
     const players = await Player.findAll({
-      order: [['currentRating', 'DESC']]
+      where: { SeasonId: targetSeasonId },
+      order: [['currentRating', 'DESC'], ['rank', 'ASC']]
     });
-    
+
     const performance = await Promise.all(players.map(async player => {
       try {
         // Get all RatingAwards for this player
         const awards = await RatingAwards.findAll({ where: { PlayerId: player.id } });
-        
-        // Get all matches played by this player
-        const matchIds = awards.map(a => a.MatchId);
-        const matches = await Match.findAll({ 
+
+        // Get all matches played by this player (skip empty matchIds)
+        const matchIds = awards.map(a => a.MatchId).filter(Boolean);
+        const matches = matchIds.length > 0 ? await Match.findAll({
           where: { id: matchIds },
           order: [['date', 'DESC']]
-        });
-        
-        // Map match info and points for each match (preserve sorted order)
-        const matchDetails = matches.map(match => {
-          const award = awards.find(a => a.MatchId === match.id);
-          return award ? {
-            matchId: match.id,
-            date: match.date,
-            matchCode: match.matchCode,
-            court: match.court,
-            score: match.score,
-            points: award.Rating
-          } : null;
-        }).filter(Boolean);
-        
-        // Sum of all points
+        }) : [];
+
+        // Map match info (exclude absence/ABS synthetic matches)
+        const matchDetails = matches
+          .filter(match => match.matchCode !== 'ABS')
+          .map(match => {
+            const award = awards.find(a => a.MatchId === match.id);
+            return award ? {
+              matchId: match.id,
+              date: match.date,
+              matchCode: match.matchCode,
+              court: match.court,
+              score: match.score,
+              points: award.Rating
+            } : null;
+          }).filter(Boolean);
+
+        // Sum of all rating change points (including absence penalties)
         const totalPoints = awards.reduce((sum, a) => sum + (a.Rating || 0), 0);
-        
+
         return {
           id: player.id,
           name: player.name,
@@ -182,9 +202,11 @@ router.get('/players/performance', async (req, res) => {
 // GET /api/public/players - Public access to player list
 router.get('/players', async (req, res) => {
   try {
+    const targetSeasonId = parseInt(req.query.seasonId || req.query.SeasonId || '2', 10);
     const players = await Player.findAll({
-      order: [['currentRating', 'DESC']],
-      attributes: ['id', 'name', 'currentRating', 'initialRating', 'joiningDate']
+      where: { SeasonId: targetSeasonId },
+      order: [['currentRating', 'DESC'], ['rank', 'ASC']],
+      attributes: ['id', 'name', 'currentRating', 'initialRating', 'joiningDate', 'rank']
     });
     res.json(players);
   } catch (error) {
@@ -330,7 +352,9 @@ router.get('/matches/:matchId', async (req, res) => {
 router.get('/schedule/matchdays', async (req, res) => {
   try {
     const MatchDay = require('../models/MatchDay');
+    const targetSeasonId = parseInt(req.query.seasonId || req.query.SeasonId || '2', 10);
     const days = await MatchDay.findAll({
+      where: { SeasonId: targetSeasonId },
       attributes: ['id', ['date', 'match_day'], 'finalized'],
       order: [['date', 'DESC']],
     });

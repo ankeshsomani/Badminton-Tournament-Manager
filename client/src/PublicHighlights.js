@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { api } from './utils/api';
+import SeasonSelector from './SeasonSelector';
 
 function formatDate(dateString) {
   if (!dateString) return '';
@@ -7,46 +8,106 @@ function formatDate(dateString) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+function Section({ title, children, defaultOpen = true }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div style={{ background: '#fff', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.08)', marginBottom: '20px', overflow: 'hidden' }}>
+      <div
+        onClick={() => setOpen(o => !o)}
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', cursor: 'pointer', background: '#f8fafc', borderBottom: open ? '1px solid #e2e8f0' : 'none' }}
+      >
+        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#1e293b' }}>{title}</h3>
+        <span style={{ fontSize: '20px', color: '#64748b', fontWeight: 'bold', lineHeight: 1 }}>{open ? '−' : '+'}</span>
+      </div>
+      {open && <div style={{ padding: '16px 20px' }}>{children}</div>}
+    </div>
+  );
+}
+
+function PlayerChangeCard({ player, idx, positive }) {
+  return (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      padding: '10px 14px', borderRadius: '8px', marginBottom: '8px',
+      background: positive ? '#f0fdf4' : '#fef2f2',
+      border: `1px solid ${positive ? '#bbf7d0' : '#fecaca'}`
+    }}>
+      <div>
+        <span style={{ fontWeight: '600', marginRight: '8px', color: '#64748b' }}>#{idx + 1}</span>
+        <span style={{ fontWeight: '600', color: positive ? '#166534' : '#991b1b' }}>{player.name}</span>
+      </div>
+      <span style={{ fontWeight: 'bold', fontSize: '16px', color: positive ? '#16a34a' : '#dc2626' }}>
+        {positive ? '+' : ''}{player.rating_change}
+      </span>
+    </div>
+  );
+}
+
+function MatchCard({ match }) {
+  return (
+    <div style={{
+      padding: '12px 14px', borderRadius: '8px', marginBottom: '8px',
+      background: '#f8fafc', border: '1px solid #e2e8f0'
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+        <span style={{ fontWeight: '700', color: '#6366f1', fontSize: '13px' }}>{match.matchCode}</span>
+        <span style={{ fontSize: '13px', fontWeight: '600', color: '#0f172a' }}>Score: {match.score}</span>
+        <span style={{ fontSize: '12px', color: '#64748b' }}>Court {match.court}</span>
+      </div>
+      {match.team1Names && match.team2Names && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#334155' }}>
+          <span>{match.team1Names.join(' & ')}</span>
+          <span style={{ color: '#94a3b8', fontWeight: 'bold' }}>vs</span>
+          <span>{match.team2Names.join(' & ')}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PublicHighlights() {
   const [matchDays, setMatchDays] = useState([]);
+  const [selectedSeasonId, setSelectedSeasonId] = useState(2);
   const [selectedDay, setSelectedDay] = useState('');
-  const [limit, setLimit] = useState(10);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
 
-  const isMobile = useMemo(() => {
-    if (typeof window === 'undefined') return false;
-    return window.innerWidth <= 768;
-  }, []);
-
+  // Fetch match days whenever season changes
   useEffect(() => {
     const fetchDays = async () => {
+      setLoading(true);
+      setData(null);
+      setSelectedDay('');
       try {
-        const days = await api.getPublicMatchDays();
-        // backend returns array with objects having match_day
+        const days = await api.getPublicMatchDays(selectedSeasonId);
         const onlyDates = days
           .map(d => d.match_day || d.date || d)
           .filter(Boolean)
           .map(formatDate);
-        // unique and sorted desc already from API
         setMatchDays(onlyDates);
-        if (onlyDates.length > 0) setSelectedDay(onlyDates[0]);
+        if (onlyDates.length > 0) {
+          setSelectedDay(onlyDates[0]);
+        } else {
+          setLoading(false);
+        }
       } catch (e) {
         console.error(e);
         setError('Failed to load match days');
+        setLoading(false);
       }
     };
     fetchDays();
-  }, []);
+  }, [selectedSeasonId]);
 
+  // Fetch highlights whenever selectedDay changes
   useEffect(() => {
     if (!selectedDay) return;
     const load = async () => {
       setLoading(true);
       setError(null);
       try {
-        const res = await api.getPublicHighlights(selectedDay, limit);
+        const res = await api.getPublicHighlights(selectedDay, 10);
         setData(res);
       } catch (e) {
         console.error(e);
@@ -55,151 +116,102 @@ function PublicHighlights() {
       setLoading(false);
     };
     load();
-  }, [selectedDay, limit]);
+  }, [selectedDay]);
 
   return (
-    <div className="highlights-container">
-      <div className="controls">
-        <div className="control">
-          <label>Date</label>
-          <select value={selectedDay} onChange={e => setSelectedDay(e.target.value)}>
-            {matchDays.map(d => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
-        </div>
-        <div className="control">
-          <label>Items</label>
-          <select value={limit} onChange={e => setLimit(parseInt(e.target.value, 10))}>
-            {[5, 10, 15, 20].map(n => <option key={n} value={n}>{n}</option>)}
-          </select>
-        </div>
+    <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '16px' }}>
+      {/* Header controls */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+        <SeasonSelector selectedSeasonId={selectedSeasonId} onSeasonChange={setSelectedSeasonId} />
+
+        {matchDays.length > 0 && (
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <label style={{ fontWeight: '600', color: '#334155' }}>📅 Match Day:</label>
+            <select
+              value={selectedDay}
+              onChange={(e) => setSelectedDay(e.target.value)}
+              style={{
+                padding: '8px 14px', borderRadius: '8px', border: '2px solid #6366f1',
+                fontWeight: '600', fontSize: '14px', color: '#1e293b', cursor: 'pointer'
+              }}
+            >
+              {matchDays.map(d => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
-      {loading && (
-        <div className="loading">Loading highlights...</div>
-      )}
-      {error && (
-        <div className="error">{error}</div>
-      )}
-
-      {!loading && !error && data && (
-        <div className="sections-grid">
-          <section className="card">
-            <h3>Top Risers</h3>
-            <ul className="list">
-              {data.topGainers.length === 0 && <li className="muted">No data</li>}
-              {data.topGainers.map((p, idx) => (
-                <li key={p.player_id} className="row">
-                  <span className="rank">#{idx + 1}</span>
-                  <span className="name">{p.name}</span>
-                  <span className="delta positive">+{p.rating_change}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          <section className="card">
-            <h3>Top Fallers</h3>
-            <ul className="list">
-              {data.topLosers.length === 0 && <li className="muted">No data</li>}
-              {data.topLosers.map((p, idx) => (
-                <li key={p.player_id} className="row">
-                  <span className="rank">#{idx + 1}</span>
-                  <span className="name">{p.name}</span>
-                  <span className="delta negative">{p.rating_change}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          <section className="card wide">
-            <h3>Closest Thrillers</h3>
-            <ul className="list">
-              {data.closestMatches.length === 0 && <li className="muted">No scored matches</li>}
-              {data.closestMatches.map((m, idx) => (
-                <li key={m.id} className="row multi">
-                  <div className="rank">#{idx + 1}</div>
-                  <div className="teams">
-                    <div className="team">{m.team1Names.join(' / ') || 'Team 1'}</div>
-                    <div className="vs">vs</div>
-                    <div className="team">{m.team2Names.join(' / ') || 'Team 2'}</div>
-                  </div>
-                  <div className="score">
-                    <span className="badge">{m.score}</span>
-                    <span className="sub muted">Total margin: {m.marginSum}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          <section className="card wide">
-            <h3>One-sided Wins</h3>
-            <ul className="list">
-              {data.oneSidedMatches.length === 0 && <li className="muted">No scored matches</li>}
-              {data.oneSidedMatches.map((m, idx) => (
-                <li key={m.id} className="row multi">
-                  <div className="rank">#{idx + 1}</div>
-                  <div className="teams">
-                    <div className="team">{m.team1Names.join(' / ') || 'Team 1'}</div>
-                    <div className="vs">vs</div>
-                    <div className="team">{m.team2Names.join(' / ') || 'Team 2'}</div>
-                  </div>
-                  <div className="score">
-                    <span className="badge badge-red">{m.score}</span>
-                    <span className="sub muted">Total margin: {m.marginSum}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </section>
+      {/* No match days yet */}
+      {matchDays.length === 0 && !loading && (
+        <div style={{ padding: '60px 20px', textAlign: 'center', background: '#f8fafc', borderRadius: '16px', color: '#64748b' }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>🏸</div>
+          <h3 style={{ margin: '0 0 8px 0', color: '#1e293b' }}>No Match Days Yet for Season {selectedSeasonId === 2 ? '2.0' : '1.0'}</h3>
+          <p style={{ margin: 0 }}>Highlights will appear here once match days are scheduled and finalized!</p>
         </div>
       )}
 
-      <style>{`
-        .highlights-container { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
-        .controls { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-bottom: 16px; }
-        .control { display: flex; align-items: center; gap: 8px; background: #f7f9fc; padding: 8px 12px; border-radius: 8px; }
-        .control label { font-weight: 600; }
-        .control select { padding: 6px 10px; border-radius: 6px; border: 1px solid #ddd; background: white; }
+      {/* Loading */}
+      {loading && (
+        <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Loading highlights...</div>
+      )}
 
-        .loading, .error { text-align: center; margin: 16px 0; }
-        .error { color: #c62828; }
+      {/* Error */}
+      {error && !loading && (
+        <div style={{ padding: '20px', color: '#ef4444', textAlign: 'center', background: '#fef2f2', borderRadius: '8px' }}>{error}</div>
+      )}
 
-        .sections-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-        .card { background: #fff; border-radius: 12px; box-shadow: 0 2px 14px rgba(0,0,0,0.08); padding: 16px; }
-        .card h3 { margin: 4px 0 12px; font-size: 1.06rem; }
-        .card.wide { grid-column: span 2; }
+      {/* Main content */}
+      {!loading && !error && data && (
+        <div>
+          {/* Top Gainers */}
+          <Section title="🚀 Top Gainers" defaultOpen={true}>
+            {data.topGainers && data.topGainers.length > 0 ? (
+              data.topGainers.map((p, idx) => (
+                <PlayerChangeCard key={p.player_id || idx} player={p} idx={idx} positive={true} />
+              ))
+            ) : (
+              <p style={{ color: '#64748b', margin: 0 }}>No gainers recorded for this match day.</p>
+            )}
+          </Section>
 
-        .list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
-        .row { display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid #eef2f7; border-radius: 10px; }
-        .row.multi { grid-template-columns: 40px 1fr auto; }
-        .rank { width: 32px; height: 32px; border-radius: 8px; background: #f1f5ff; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #3056d3; }
-        .name { font-weight: 600; }
-        .delta { font-weight: 700; }
-        .delta.positive { color: #2e7d32; }
-        .delta.negative { color: #c62828; }
-        .muted { color: #757575; }
+          {/* Top Losers */}
+          <Section title="📉 Top Losers" defaultOpen={true}>
+            {data.topLosers && data.topLosers.length > 0 ? (
+              data.topLosers.map((p, idx) => (
+                <PlayerChangeCard key={p.player_id || idx} player={p} idx={idx} positive={false} />
+              ))
+            ) : (
+              <p style={{ color: '#64748b', margin: 0 }}>No losers recorded for this match day.</p>
+            )}
+          </Section>
 
-        .teams { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-        .team { font-weight: 600; }
-        .vs { color: #9e9e9e; font-weight: 700; }
-        .score { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
-        .badge { background: #e8f5e9; color: #2e7d32; border-radius: 16px; padding: 4px 10px; font-weight: 700; }
-        .badge-red { background: #ffebee; color: #c62828; }
-        .sub { font-size: 0.85rem; }
+          {/* Closest Matches */}
+          <Section title="⚡ Closest Matches (Thrillers)" defaultOpen={false}>
+            {data.closestMatches && data.closestMatches.length > 0 ? (
+              data.closestMatches.map((m) => (
+                <MatchCard key={m.id} match={m} />
+              ))
+            ) : (
+              <p style={{ color: '#64748b', margin: 0 }}>No scored matches found.</p>
+            )}
+          </Section>
 
-        @media (max-width: 768px) {
-          .sections-grid { grid-template-columns: 1fr; }
-          .card.wide { grid-column: span 1; }
-          .row { grid-template-columns: 32px 1fr auto; }
-        }
-      `}</style>
+          {/* One-sided Matches */}
+          <Section title="💥 One-Sided Matches" defaultOpen={false}>
+            {data.oneSidedMatches && data.oneSidedMatches.length > 0 ? (
+              data.oneSidedMatches.map((m) => (
+                <MatchCard key={m.id} match={m} />
+              ))
+            ) : (
+              <p style={{ color: '#64748b', margin: 0 }}>No scored matches found.</p>
+            )}
+          </Section>
+        </div>
+      )}
     </div>
   );
 }
 
 export default PublicHighlights;
-
-

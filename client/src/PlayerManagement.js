@@ -38,16 +38,10 @@ function PlayerManagement() {
       });
       setPlayers(sorted);
       
-      // Fetch match history for each player
+      // Map match history flag directly from pre-computed hasMatches attribute (N+1 eliminated)
       const matchHistory = {};
       for (const player of sorted) {
-        try {
-          const hasMatches = await api.checkPlayerMatches(player.id);
-          matchHistory[player.id] = hasMatches;
-        } catch (err) {
-          console.error(`Error checking matches for player ${player.id}:`, err);
-          matchHistory[player.id] = false;
-        }
+        matchHistory[player.id] = player.hasMatches ?? false;
       }
       setPlayerMatchHistory(matchHistory);
     } catch (err) {

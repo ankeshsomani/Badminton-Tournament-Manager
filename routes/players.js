@@ -62,10 +62,37 @@ router.post('/import', async (req, res) => {
   res.json(docs);
 });
 
-// GET /api/players
+// GET /api/players — defaults to active season (SeasonId=2) if not specified
 router.get('/', async (req, res) => {
-  const list = await Player.findAll({ order: [['currentRating','DESC']] });
-  res.json(list);
+  try {
+    const targetSeasonId = parseInt(req.query.SeasonId || req.query.seasonId || '2', 10);
+    const where = { SeasonId: targetSeasonId };
+    const Sequelize = require('sequelize');
+    const { RatingAwards } = require('../models/Match');
+    const list = await Player.findAll({
+      where,
+      order: [['currentRating', 'DESC'], ['rank', 'ASC']],
+      raw: true
+    });
+
+    // Bulk query match awards to compute hasMatches in 1 single query
+    const awards = await RatingAwards.findAll({
+      attributes: ['PlayerId', [Sequelize.fn('COUNT', Sequelize.col('PlayerId')), 'matchCount']],
+      group: ['PlayerId'],
+      raw: true
+    });
+    const playerWithMatchesSet = new Set(awards.map(a => a.PlayerId));
+
+    const enrichedList = list.map(p => ({
+      ...p,
+      hasMatches: playerWithMatchesSet.has(p.id)
+    }));
+
+    res.json(enrichedList);
+  } catch (err) {
+    console.error('Error fetching players:', err);
+    res.status(500).json({ error: 'Failed to fetch players' });
+  }
 });
 
 /**
