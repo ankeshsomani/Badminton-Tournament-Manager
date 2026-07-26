@@ -3,6 +3,9 @@ set -e
 
 SERVICE_NAME="mbpl-app"
 
+echo "🧪 Running full functional test suite..."
+npm test
+
 echo "🚀 Building frontend React assets locally..."
 npm --prefix client run build
 

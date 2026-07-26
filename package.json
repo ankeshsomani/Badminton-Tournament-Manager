@@ -6,10 +6,13 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
+    "test": "node test/run-all.js",
+    "build": "npm test && npm --prefix client run build",
+    "predeploy": "npm test",
+    "deploy": "bash scripts/deploy.sh",
     "import-players": "node scripts/import-players.js",
     "import-players-force": "node scripts/import-players.js --force",
-    "migrate-data": "node scripts/migrate-data.js",
-    "deploy": "bash scripts/deploy.sh"
+    "migrate-data": "node scripts/migrate-data.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
