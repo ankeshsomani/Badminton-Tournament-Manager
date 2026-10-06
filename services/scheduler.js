@@ -111,7 +111,11 @@ function parseTeamString(teamStr, numPlayers) {
 async function generateSchedule(date = new Date()) {
   try {
     let matchDay = await MatchDay.findOne({ where: { date } });
-    if (!matchDay) matchDay = await MatchDay.create({ date });
+    if (!matchDay) {
+      const Season = require('../models/Season');
+      const activeSeason = await Season.findOne({ where: { isActive: true } });
+      matchDay = await MatchDay.create({ date, SeasonId: activeSeason ? activeSeason.id : 2 });
+    }
 
     // Defensive: check Attendance table exists and query works
     let attendance;

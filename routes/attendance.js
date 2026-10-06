@@ -81,7 +81,11 @@ router.put('/', async (req, res) => {
   // Group by date
   const date = attendance[0].date;
   let matchDay = await MatchDay.findOne({ where: { date } });
-  if (!matchDay) matchDay = await MatchDay.create({ date });
+  if (!matchDay) {
+    const Season = require('../models/Season');
+    const activeSeason = await Season.findOne({ where: { isActive: true } });
+    matchDay = await MatchDay.create({ date, SeasonId: activeSeason ? activeSeason.id : 2 });
+  }
 
   // Remove previous attendance for this day
   await Attendance.destroy({ where: { MatchDayId: matchDay.id } });

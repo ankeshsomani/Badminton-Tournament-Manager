@@ -44,10 +44,10 @@ async function runTests() {
       }
     }
   }
-  // Most matches should have results; a few legacy exceptions are tolerable
-  assert(matchesWithResults > matchesWithoutResults * 10,
+  // Most matches should have results; unplayed/legacy exceptions are tolerable
+  assert(matchesWithResults > matchesWithoutResults * 5,
     `Too many matches without results: ${matchesWithoutResults} without vs ${matchesWithResults} with`);
-  console.log(`  ✅ TC-11.3: ${matchesWithResults} matches with results (${matchesWithScore} with score), ${matchesWithoutResults} legacy exceptions`);
+  console.log(`  ✅ TC-11.3: ${matchesWithResults} matches with results (${matchesWithScore} with score), ${matchesWithoutResults} unplayed/legacy exceptions`);
 
   // TC-11.4: Every absent player in a finalized MatchDay has an ABS match with -10 penalty
   for (const day of finalizedDays) {

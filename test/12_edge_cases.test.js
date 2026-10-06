@@ -76,13 +76,13 @@ async function runTests() {
   // (Season 1 had custom match formats, so only validate S2)
   const s2DayIds = (await MatchDay.findAll({ where: { SeasonId: 2 }, attributes: ['id'], raw: true })).map(d => d.id);
   if (s2DayIds.length > 0) {
-    const s2Singles = await Match.findAll({ where: { matchCode: ['M5','M6','M7','M8'], MatchDayId: s2DayIds } });
+    const s2Singles = await Match.findAll({ where: { matchType: 'singles', MatchDayId: s2DayIds } });
     for (const m of s2Singles) {
       assert.strictEqual(m.team1.length, 1, `S2 Singles ${m.matchCode} team1 should have 1 player`);
       assert.strictEqual(m.team2.length, 1, `S2 Singles ${m.matchCode} team2 should have 1 player`);
     }
     const s2Doubles = await Match.findAll({
-      where: { matchCode: ['M1','M2','M3','M4','M9','M10','M11','M12'], MatchDayId: s2DayIds }
+      where: { matchType: 'doubles', MatchDayId: s2DayIds }
     });
     for (const m of s2Doubles) {
       assert.strictEqual(m.team1.length, 2, `S2 Doubles ${m.matchCode} team1 should have 2 players`);

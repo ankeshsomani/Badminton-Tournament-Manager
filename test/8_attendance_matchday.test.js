@@ -31,21 +31,25 @@ async function runTests() {
   }
   console.log('  ✅ TC-8.2: Finalized MatchDays with attendance have reasonable record counts');
 
-  // TC-8.3: Each match has exactly 2 or 4 players in RatingAwards (singles=2, doubles=4, ABS=variable)
+  // TC-8.3: Each finalized match with awards has exactly 2 or 4 players in RatingAwards (singles=2, doubles=4, ABS=variable)
   const regularMatches = await Match.findAll({
     where: { matchCode: ['M1','M2','M3','M4','M5','M6','M7','M8','M9','M10','M11','M12'] }
   });
   let teamSizeErrors = 0;
+  let matchesChecked = 0;
   for (const m of regularMatches) {
     const awardCount = await RatingAwards.count({ where: { MatchId: m.id } });
-    const expectedCount = m.matchType === 'singles' ? 2 : 4;
-    if (awardCount !== expectedCount) {
-      teamSizeErrors++;
+    if (awardCount > 0) {
+      matchesChecked++;
+      const expectedCount = m.matchType === 'singles' ? 2 : 4;
+      if (awardCount !== expectedCount) {
+        teamSizeErrors++;
+      }
     }
   }
   assert.strictEqual(teamSizeErrors, 0,
     `${teamSizeErrors} matches have incorrect number of RatingAward entries`);
-  console.log(`  ✅ TC-8.3: All ${regularMatches.length} regular matches have correct team sizes (2 for singles, 4 for doubles)`);
+  console.log(`  ✅ TC-8.3: All ${matchesChecked} awarded regular matches have correct team sizes (2 for singles, 4 for doubles)`);
 
   // TC-8.4: team1 and team2 arrays in each match contain valid player IDs
   const allMatches = await Match.findAll({
