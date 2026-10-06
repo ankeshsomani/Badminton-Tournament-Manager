@@ -117,7 +117,7 @@ function PlayerManagement() {
       alert(editingPlayer ? 'Player updated successfully!' : 'Player added successfully!');
     } catch (err) {
       console.error('Error saving player:', err);
-      alert('Failed to save player. Please try again.');
+      alert(err.message || 'Failed to save player. Please try again.');
     }
     setSaving(false);
   };

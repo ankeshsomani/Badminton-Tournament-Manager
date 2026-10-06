@@ -201,16 +201,30 @@ router.get('/performance', async (req, res) => {
 // POST /api/players - Create new player
 router.post('/', async (req, res) => {
   try {
-    const { name, gender, initialRating, currentRating, joiningDate } = req.body;
+    const { name, gender, initialRating, currentRating, joiningDate, SeasonId, seasonId } = req.body;
     
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Player name is required' });
     }
+
+    const Season = require('../models/Season');
+    let targetSeasonId = SeasonId || seasonId;
+    if (!targetSeasonId) {
+      const activeSeason = await Season.findOne({ where: { isActive: true } });
+      targetSeasonId = activeSeason ? activeSeason.id : 2;
+    } else {
+      targetSeasonId = parseInt(targetSeasonId, 10);
+    }
     
-    // Check if player with same name already exists
-    const existingPlayer = await Player.findOne({ where: { name: name.trim() } });
+    // Check if player with same name already exists in this season
+    const existingPlayer = await Player.findOne({ 
+      where: { 
+        name: name.trim(),
+        SeasonId: targetSeasonId
+      } 
+    });
     if (existingPlayer) {
-      return res.status(409).json({ error: 'Player with this name already exists' });
+      return res.status(409).json({ error: 'Player with this name already exists in this season' });
     }
     
     const player = await Player.create({
@@ -219,7 +233,8 @@ router.post('/', async (req, res) => {
       initialRating: initialRating || 1000,
       currentRating: currentRating || initialRating || 1000,
       joiningDate: joiningDate || new Date(),
-      lastRatingUpdatedOn: new Date()
+      lastRatingUpdatedOn: new Date(),
+      SeasonId: targetSeasonId
     });
     
     res.status(201).json(player);
@@ -244,15 +259,16 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ error: 'Player name is required' });
     }
     
-    // Check if another player with same name exists
+    // Check if another player with same name exists in this season
     const existingPlayer = await Player.findOne({ 
       where: { 
         name: name.trim(),
+        SeasonId: player.SeasonId,
         id: { [require('sequelize').Op.ne]: id }
       } 
     });
     if (existingPlayer) {
-      return res.status(409).json({ error: 'Another player with this name already exists' });
+      return res.status(409).json({ error: 'Another player with this name already exists in this season' });
     }
     
     // Check if player has match history to restrict certain field updates
